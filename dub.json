@@ -1,0 +1,15 @@
+{
+	"authors": [
+		"Mai-Lapyst"
+	],
+	"copyright": "Copyright © 2023, Mai-Lapyst",
+	"dependencies": {
+		"ministd:callable": "~>0.2.1"
+	},
+	"description": "A serialization framework for D",
+	"license": "AGPL-3.0-or-later",
+	"name": "serialize-d",
+	"subPackages": [
+		"./packages/json"
+	]
+}

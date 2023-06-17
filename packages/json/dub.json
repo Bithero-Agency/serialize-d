@@ -1,0 +1,14 @@
+{
+	"authors": [
+		"Mai-Lapyst"
+	],
+	"copyright": "Copyright © 2023, Mai-Lapyst",
+	"description": "JSON support for serialize-d",
+	"license": "AGPL-3.0-or-later",
+	"name": "json",
+	"dependencies": {
+		"serialize-d": {
+			"path": "../.."
+		}
+	}
+}

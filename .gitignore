@@ -1,0 +1,17 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/serialize-d
+serialize-d.so
+serialize-d.dylib
+serialize-d.dll
+serialize-d.a
+serialize-d.lib
+serialize-d-test-*
+libserialize-d.a
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
