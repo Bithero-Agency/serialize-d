@@ -147,5 +147,4 @@ There is a whole range of attributes one can use to modify the behaviour of the 
 ## Roadmap
 
 - support pretty printing
-- support parsing where whitespaces are ignored
 - support more attributes (see `source/serialize_d/json/attributes.d`)

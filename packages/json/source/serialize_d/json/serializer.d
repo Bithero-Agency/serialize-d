@@ -204,6 +204,18 @@ public:
         this.pos += i;
         this.fillIfNeeded();
     }
+    /// Skips all whitespaces
+    void skipWhitespace() {
+        char c;
+        while (true) {
+            c = this.currentChar();
+            if (c.isWhitespace) {
+                this.pos++;
+            } else {
+                return;
+            }
+        }
+    }
 
     /// Consumes a character; alters the position
     /// 
@@ -526,6 +538,10 @@ public:
         }
     }
 
+}
+
+private bool isWhitespace(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
 /// The JSON (de-)serializer
@@ -931,9 +947,12 @@ public:
                 c = parse.currentChar();
                 if (c == '}') { parse.nextChar(); break; }
                 else if (c == ',') { parse.nextChar(); continue; }
+                else if (c.isWhitespace) { parse.nextChar(); continue; }
                 else {
                     auto key = parse.consumeString();
+                    parse.skipWhitespace();
                     parse.consumeChar(':');
+                    parse.skipWhitespace();
 
                     alias fieldNames = T.fieldNames;
                     template GenCasesTuple(size_t i = 0) {
@@ -995,9 +1014,12 @@ public:
                 c = parse.currentChar();
                 if (c == '}') { parse.nextChar(); break; }
                 else if (c == ',') { parse.nextChar(); continue; }
+                else if (c.isWhitespace) { parse.nextChar(); continue; }
                 else {
                     string key = parse.consumeString();
+                    parse.skipWhitespace();
                     parse.consumeChar(':');
+                    parse.skipWhitespace();
 
                     alias field_names = FieldNameTuple!T;
                     alias field_types = FieldTypeTuple!T;
@@ -1205,6 +1227,7 @@ public:
                     c = parse.currentChar();
                     if (c == ']') { parse.nextChar(); break; }
                     else if (c == ',') { parse.nextChar(); continue; }
+                    else if (c.isWhitespace) { parse.nextChar(); continue; }
                     else {
                         r ~= this.deserialize!(E)(parse);
                     }
@@ -1223,6 +1246,7 @@ public:
                     c = parse.currentChar();
                     if (c == '}') { parse.nextChar(); break; }
                     else if (c == ',') { parse.nextChar(); continue; }
+                    else if (c.isWhitespace) { parse.nextChar(); continue; }
                     else {
                         string key = parse.consumeString();
                         parse.consumeChar(':');
@@ -1238,6 +1262,7 @@ public:
                     c = parse.currentChar();
                     if (c == ']') { parse.nextChar(); break; }
                     else if (c == ',') { parse.nextChar(); continue; }
+                    else if (c.isWhitespace) { parse.nextChar(); continue; }
                     else {
                         parse.consumeChar('[');
                         auto key = this.deserialize!(KeyType!T)(parse);

@@ -137,7 +137,7 @@ void main() {
     int r3 = mapper.deserialize!(int)("1024");
     writeln(r3);
 
-    int[] r2 = mapper.deserialize!(int[])("[11,22,33]");
+    int[] r2 = mapper.deserialize!(int[])("[11, 22, 33]");
     writeln(r2);
 
     //MyObj obj2 = mapper.deserialize!(MyObj)(res);
