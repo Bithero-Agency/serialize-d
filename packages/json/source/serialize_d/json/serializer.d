@@ -1021,6 +1021,32 @@ public:
                     parse.consumeChar(':');
                     parse.skipWhitespace();
 
+                    template GenAliasCases(alias sym) {
+                        static if (hasUDA!(sym, JsonAlias)) {
+                            alias alias_udas = getUDAs!(sym, JsonAlias);
+                            template CollectAliasCases(size_t i = 0) {
+                                static if (i >= alias_udas.length) {
+                                    enum CollectAliasCases = "";
+                                } else {
+                                    alias alias_uda = alias_udas[i];
+                                    template CollectAliasCasesInner(size_t i = 0) {
+                                        static if (i >= alias_uda.names.length) {
+                                            enum CollectAliasCasesInner = "";
+                                        } else {
+                                            enum CollectAliasCasesInner =
+                                                "case \"" ~ alias_uda.names[i] ~ "\": "
+                                                ~ CollectAliasCasesInner!(i+1);
+                                        }
+                                    }
+                                    enum CollectAliasCases = CollectAliasCasesInner!() ~ CollectAliasCases!(i + 1);
+                                }
+                            }
+                            enum GenAliasCases = CollectAliasCases!();
+                        } else {
+                            enum GenAliasCases = "";
+                        }
+                    }
+
                     alias field_names = FieldNameTuple!T;
                     alias field_types = FieldTypeTuple!T;
                     template GenCasesStructFields(size_t i = 0) {
@@ -1076,8 +1102,10 @@ public:
                                 }
                             }
 
+                            enum Aliases = GenAliasCases!(T.tupleof[i]);
+
                             enum GenCasesStructFields =
-                                "case \"" ~ Key ~ "\": { " ~ Val ~ " break; }\n"
+                                "case \"" ~ Key ~ "\": " ~ Aliases ~ " { " ~ Val ~ " break; }\n"
                                 ~ GenCasesStructFields!(i+1);
                         }
                     }
@@ -1134,8 +1162,10 @@ public:
                                             enum Val = "this.deserialize!(ParameterTypeTuple!member)(parse)";
                                         }
 
+                                        enum Aliases = GenAliasCases!(member);
+
                                         enum GenCasesStructMethods =
-                                            "case \"" ~ uda.name ~ "\": {"
+                                            "case \"" ~ uda.name ~ "\": " ~ Aliases ~ " {"
                                                 ~ "alias member = T." ~ name ~ ";"
                                                 ~ "value." ~ name ~ "(" ~ Val ~ ");"
                                                 ~ "break;"

@@ -73,6 +73,12 @@ class MyObj {
     @JsonDeserialize!(myFuncDeserializer, 1)
     string funcSerialize;
 
+    @JsonAlias([ "aliased2", "aliased3" ])
+    @JsonSetter("aliased")
+    void setAliased(string v) {
+        writeln("setAliased = ", v);
+    }
+
     this() {
         this.map = [
             "hello": 42,

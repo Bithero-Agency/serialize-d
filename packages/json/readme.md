@@ -132,6 +132,16 @@ There is a whole range of attributes one can use to modify the behaviour of the 
     ```
     Note: everything after the first template argument is optional and will be used to initialize classes/structs or given after the buffer and the value for functions.
 
+- `@JsonAlias`: specifies additional aliases which are also used when deserialized:
+    ```d
+    class MyObj {
+        @JsonAlias([ "full_name" ])
+        string name;
+    }
+    ```
+    This has the effect that the json `{"name":"John Doe"}` and `{"full_name":"John Doe"}` are deserialized into the a object where `obj.name == "John Doe"`.
+    Note: in a JSON object that has *both* keys, the key that comes last will override any values set before, so if you have `{"name":"John Doe","full_name":"Juliet"}`, then the resulting value will be `Juliet`.
+
 - `@JsonIgnore`: this allows you to simply ignore fields in a structure (will not be serialized and/or deserialized).
 
 - `@JsonIgnoreType`: like `@JsonIgnore` but for entire types; but this on a class/struct and it will not be serialized, and also no fields that have this type.

@@ -71,9 +71,9 @@ struct JsonSetter {
 struct JsonDeserialize(alias T, Args...) {}
 
 // UDA to specify alias keys when deserializing
-// struct JsonAlias {
-//     string[] names;
-// }
+struct JsonAlias {
+    string[] names;
+}
 
 // --------------------------------------------------------------------------------
 //  Other
