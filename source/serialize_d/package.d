@@ -48,7 +48,7 @@ string serialize(S, T)(auto ref T value, auto ref S serializer) {
 /// 
 /// Returns: the deserialized value
 V deserialize(V, S, I)(I inp, auto ref S serializer)
-if (isSomeString!I)
+if (isSomeString!I && !isSomeString!S)
 {
     return serializer.deserialize!(V)(inp);
 }
