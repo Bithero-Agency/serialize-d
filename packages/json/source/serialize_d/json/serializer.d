@@ -1010,7 +1010,8 @@ public:
         return this.deserialize!(T)(parse);
     }
 
-    private void deserializeObjectInner(T)(auto ref T value, JsonParser parse) {
+    private void deserializeObjectInner(T)(auto ref T value, JsonParser parse)
+    if (is(T == class) || is(T == struct)) {
         import std.traits;
         import std.meta : AliasSeq, Filter;
 
