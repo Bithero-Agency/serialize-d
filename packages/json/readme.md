@@ -189,6 +189,8 @@ There is a whole range of attributes one can use to modify the behaviour of the 
 
     Note: currently the order of properties / elements is important: the data that denotes the type needs to always come first.
 
+    Note: currently all classes that should be deserializeable via this feature needs an default constructor; i.e. `this() {}`.
+
 ## Roadmap
 
 - support pretty printing
