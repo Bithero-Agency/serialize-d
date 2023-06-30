@@ -127,6 +127,37 @@ class MyObj {
     }
 }
 
+
+@JsonTypeInfo(
+    use: JsonTypeInfo.Id.NAME,
+    include: JsonTypeInfo.As.PROPERTY,
+    property: "type"
+)
+@JsonSubTypes([
+    mkJsonSubType!(AuthType.Basic, "basic"),
+    mkJsonSubType!(AuthType.Bearer, "bearer"),
+])
+abstract class AuthType {
+    abstract void printOut();
+
+    static class Basic : AuthType {
+        this() {}
+
+        string user, pass;
+        override void printOut() {
+            writeln("Basic { user: '", this.user, "', pass: '", this.pass, "' }");
+        }
+    }
+    static class Bearer : AuthType {
+        this() {}
+
+        string token;
+        override void printOut() {
+            writeln("Bearer { token: '", this.token, "' }");
+        }
+    }
+}
+
 void main() {
     JsonMapper mapper = new JsonMapper();
 
@@ -150,4 +181,21 @@ void main() {
 
     MyObj obj2 = res.deserialize!(MyObj)(mapper);
     writeln(obj2.i);
+
+    writeln("--------------------------------------");
+
+    {
+        AuthType a = new AuthType.Bearer();
+        (cast(AuthType.Bearer)a).token = "zzzz";
+        string s = a.serialize(mapper);
+        writeln(s);
+
+        AuthType b = s.deserialize!(AuthType)(mapper);
+        if (b is null) {
+            writeln("b is null :O");
+        } else {
+            b.printOut();
+        }
+    }
+
 }
