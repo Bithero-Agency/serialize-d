@@ -154,6 +154,41 @@ There is a whole range of attributes one can use to modify the behaviour of the 
     }
     ```
 
+- `@JsonTypeInfo` & `@JsonSubTypes`: used to be able to serialize type information into the resulting json and also loading types from it:
+    ```d
+    @JsonTypeInfo(
+        use: JsonTypeInfo.Id.NAME,
+        include: JsonTypeInfo.As.PROPERTY,
+        property: "type"
+    )
+    @JsonSubTypes([
+        mkJsonSubType!(AuthType.Basic, "basic"),
+        mkJsonSubType!(AuthType.Bearer, "bearer"),
+    ])
+    class AuthType {
+        static class Basic : AuthType {
+            string user, pass;
+        }
+        static class Bearer : AuthType {
+            string token;
+        }
+    }
+    void main() {
+        JsonMapper mapper = new JsonMapper();
+
+        AuthType a = new AuthType.Bearer();
+        (cast(AuthType.Bearer)a).token = "zzzz";
+        string s = a.serialize(mapper);
+
+        AuthType b = s.deserialize!(AuthType)(mapper);
+    }
+    ```
+    The bearer subclass in variable `a` gets serialized to: `{"type":"bearer","token":"zzzz"}`.
+
+    Note: there are also `JsonTypeInfo.As.WRAPPER_OBJECT` and `JsonTypeInfo.As.WRAPPER_ARRAY`. When used the above example would result in `{"name":"bearer","value":{"token":"zzzz"}}` and `["bearer",{"token":"zzzz"}]` respectively.
+
+    Note: currently the order of properties / elements is important: the data that denotes the type needs to always come first.
+
 ## Roadmap
 
 - support pretty printing
