@@ -840,11 +840,101 @@ public:
                 }
             }
 
-            buff.put('{');
+            T instanceof(T)(Object o) if (is(T == class)) {
+                return cast(T) o;
+            }
 
-            this.serializeInnerObject!T(buff, value);
+            alias subtypes_udas = getUDAs!(T, JsonSubTypes);
+            template SerializeTypeInfo(alias uda) {
+                static if (uda.use == JsonTypeInfo.Id.CLASS) {
+                    enum SerializeTypeInfo = "buff.putString(\"" ~ fullyQualifiedName!T ~ "\")";
+                }
+                else static if (uda.use == JsonTypeInfo.Id.NAME) {
+                    static if (subtypes_udas.length == 0) {
+                        static assert(0, "Need @JsonSubTypes for `" ~ fullyQualifiedName!T ~ "`");
+                    }
+                    else static if (subtypes_udas.length > 1) {
+                        static assert(0, "To many @JsonSubTypes for `" ~ fullyQualifiedName!T ~ "`");
+                    }
+                    else {
+                        template GenSubTypeSwitching(size_t i = 0) {
+                            static if (i >= subtypes_udas[0].subtypes.length) {
+                                enum GenSubTypeSwitching = "";
+                            }
+                            else {
+                                enum Rest = GenSubTypeSwitching!(i+1);
+                                enum Type = "imported!\"" ~ subtypes_udas[0].subtypes[i].mod ~ "\"." ~ subtypes_udas[0].subtypes[i].type;
+                                enum Code = "if (instanceof!(" ~ Type ~ ")(value)) { buff.putString(\"" ~ subtypes_udas[0].subtypes[i].name ~ "\"); }";
+                                static if (Rest == "") {
+                                    enum GenSubTypeSwitching = Code;
+                                } else {
+                                    enum GenSubTypeSwitching = Code ~ " else " ~ Rest;
+                                }
+                            }
+                        }
 
-            buff.put('}');
+                        enum SerializeTypeInfo =
+                            GenSubTypeSwitching!()
+                            ~ "else { assert(0, \"Could not determine logical name / subtype of `" ~ fullyQualifiedName!T ~ "`\"); }";
+                    }
+                }
+            }
+
+            alias type_info_uda = getUDAs!(T, JsonTypeInfo);
+            static if (type_info_uda.length == 1) {
+                template GenSubTypeSerialization(size_t i = 0) {
+                    static if (i >= subtypes_udas[0].subtypes.length) {
+                        enum GenSubTypeSerialization = "";
+                    }
+                    else {
+                        enum Rest = GenSubTypeSerialization!(i+1);
+                        enum Type = "imported!\"" ~ subtypes_udas[0].subtypes[i].mod ~ "\"." ~ subtypes_udas[0].subtypes[i].type;
+                        enum Code = "if (auto v = instanceof!(" ~ Type ~ ")(value)) { this.serializeInnerObject(buff, v); }";
+                        static if (Rest == "") {
+                            enum GenSubTypeSerialization = Code;
+                        } else {
+                            enum GenSubTypeSerialization = Code ~ " else " ~ Rest;
+                        }
+                    }
+                }
+
+                static if (type_info_uda[0].include == JsonTypeInfo.As.WRAPPER_OBJECT) {
+                    buff.put('{');
+                    buff.putKey("name");
+                    mixin(SerializeTypeInfo!(type_info_uda[0]));
+                    buff.put(',');
+                    buff.putKey("value");
+                    buff.put('{');
+                    mixin(GenSubTypeSerialization!());
+                    buff.put('}');
+                    buff.put('}');
+                }
+                else static if (type_info_uda[0].include == JsonTypeInfo.As.WRAPPER_ARRAY) {
+                    buff.put('[');
+                    mixin(SerializeTypeInfo!(type_info_uda[0]));
+                    buff.put(',');
+                    buff.put('{');
+                    mixin(GenSubTypeSerialization!());
+                    buff.put('}');
+                    buff.put(']');
+                }
+                else static if (type_info_uda[0].include == JsonTypeInfo.As.PROPERTY) {
+                    buff.put('{');
+                    buff.putKey(type_info_uda[0].property);
+                    mixin(SerializeTypeInfo!(type_info_uda[0]));
+                    buff.put(',');
+                    mixin(GenSubTypeSerialization!());
+                    buff.put('}');
+                }
+            }
+            else static if (type_info_uda.length > 1) {
+                static assert(0, "Cannot have more than one @JsonTypeInfo attribute on `" ~ fullyQualifiedName!T ~ "`");
+            }
+            else {
+                buff.put('{');
+                this.serializeInnerObject!T(buff, value);
+                buff.put('}');
+            }
         }
         else static if (isSomeString!T) {
             buff.putString(to!string(value));
