@@ -1010,6 +1010,246 @@ public:
         return this.deserialize!(T)(parse);
     }
 
+    private void deserializeObjectInner(T)(auto ref T value, JsonParser parse) {
+        import std.traits;
+        import std.meta : AliasSeq, Filter;
+
+        char c;
+        while (true) {
+            c = parse.currentChar();
+            if (c == '}') { parse.nextChar(); break; }
+            else if (c == ',') { parse.nextChar(); continue; }
+            else if (c.isWhitespace) { parse.nextChar(); continue; }
+            else {
+                string key = parse.consumeString();
+                parse.skipWhitespace();
+                parse.consumeChar(':');
+                parse.skipWhitespace();
+
+                template GenAliasCases(alias sym) {
+                    static if (hasUDA!(sym, JsonAlias)) {
+                        alias alias_udas = getUDAs!(sym, JsonAlias);
+                        template CollectAliasCases(size_t i = 0) {
+                            static if (i >= alias_udas.length) {
+                                enum CollectAliasCases = "";
+                            } else {
+                                alias alias_uda = alias_udas[i];
+                                template CollectAliasCasesInner(size_t i = 0) {
+                                    static if (i >= alias_uda.names.length) {
+                                        enum CollectAliasCasesInner = "";
+                                    } else {
+                                        enum CollectAliasCasesInner =
+                                            "case \"" ~ alias_uda.names[i] ~ "\": "
+                                            ~ CollectAliasCasesInner!(i+1);
+                                    }
+                                }
+                                enum CollectAliasCases = CollectAliasCasesInner!() ~ CollectAliasCases!(i + 1);
+                            }
+                        }
+                        enum GenAliasCases = CollectAliasCases!();
+                    } else {
+                        enum GenAliasCases = "";
+                    }
+                }
+
+                alias field_names = FieldNameTuple!T;
+                alias field_types = FieldTypeTuple!T;
+                template GenCasesStructFields(size_t i = 0) {
+                    static if (i >= field_names.length) {
+                        enum GenCasesStructFields = "";
+                    } else static if (hasUDA!(T.tupleof[i], JsonIgnore)) {
+                        enum GenCasesStructFields = GenCasesStructFields!(i+1);
+                    } else static if (hasUDA!(field_types[i], JsonIgnoreType)) {
+                        enum GenCasesStructFields = GenCasesStructFields!(i+1);
+                    } else {
+
+                        alias name = field_names[i];
+                        static if (hasUDA!(T.tupleof[i], JsonProperty)) {
+                            alias udas = getUDAs!(T.tupleof[i], JsonProperty);
+                            static assert(udas.length == 1, "Field `" ~ fullyQualifiedName!T ~ "." ~ name ~ "` can only have one @JsonProperty");
+
+                            alias uda = udas[0];
+                            static if (is(uda == JsonProperty)) {
+                                enum Key = name;
+                            } else {
+                                static if (uda.name == "") {
+                                    enum Key = name;
+                                } else {
+                                    enum Key = uda.name;
+                                }
+                            }
+                        } else {
+                            enum Key = name;
+                        }
+
+                        alias ty = field_types[i];
+                        static if (hasUDA!(T.tupleof[i], JsonDeserialize)) {
+                            import std.conv : to;
+                            enum Val =
+                                "{ " ~
+                                    "alias T = imported!\"" ~ moduleName!T ~ "\"." ~ T.stringof ~ ";" ~
+                                    "alias udas = getUDAs!(T.tupleof[" ~ to!string(i) ~ "], JsonDeserialize);" ~
+                                    "static assert (udas.length == 1, \"Cannot deserialize member `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: got more than one @JsonDeserialize attributes\");" ~
+                                    "value." ~ name ~ " = callCustomDeserializer!(udas, typeof(T.tupleof[" ~ to!string(i) ~ "]))(parse);" ~
+                                " }";
+                        } else static if (isSomeString!(ty) && hasUDA!(T.tupleof[i], JsonRawValue)) {
+                            enum Val = "value." ~ name ~ " = parse.consumeRawJson();";
+                        } else {
+                            mixin("alias member = T." ~ name ~ ";");
+                            alias memberTy = typeof(member);
+                            static if (isBuiltinType!memberTy && !is(memberTy == enum)) {
+                                enum Val =
+                                    "value." ~ name ~ " = this.deserialize!(" ~ fullyQualifiedName!memberTy ~ ")(parse);";
+                            } else {
+                                enum Val =
+                                    "import " ~ moduleName!memberTy ~ "; " ~
+                                    "value." ~ name ~ " = this.deserialize!(" ~ fullyQualifiedName!memberTy ~ ")(parse);";
+                            }
+                        }
+
+                        enum Aliases = GenAliasCases!(T.tupleof[i]);
+
+                        enum GenCasesStructFields =
+                            "case \"" ~ Key ~ "\": " ~ Aliases ~ " { " ~ Val ~ " break; }\n"
+                            ~ GenCasesStructFields!(i+1);
+                    }
+                }
+
+                alias allMembers = __traits(allMembers, T);
+                template GenCasesStructMethods(size_t i = 0) {
+                    static if (i >= allMembers.length) {
+                        enum GenCasesStructMethods = "";
+                    }
+                    else {
+                        enum name = allMembers[i];
+                        mixin ("alias member = T." ~ name ~ ";");
+                        static if (is(typeof(member) == function)) {
+                            enum isSetter = hasUDA!(member, JsonSetter);
+                            enum isAnySetter = hasUDA!(member, JsonAnySetter);
+                            static assert (
+                                !(isSetter && isAnySetter),
+                                "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have both @JsonSetter and @JsonAnySetter"
+                            );
+
+                            static if (isSetter) {
+                                static assert(
+                                    !is(ParameterTypeTuple!member == AliasSeq!()),
+                                    "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Setter must have atleast one parameter"
+                                );
+                                // TODO: check if has only one param...
+
+                                alias udas = getUDAs!(member, JsonSetter);
+                                static assert(
+                                    udas.length == 1,
+                                    "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have multiple @JsonSetter"
+                                );
+
+                                alias uda = udas[0];
+                                static if (is(uda == JsonSetter)) {
+                                    static assert(
+                                        0, "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need instance of @JsonSetter"
+                                    );
+                                } else {
+                                    static assert(
+                                        uda.name != "",
+                                        "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need name for @JsonSetter"
+                                    );
+
+                                    static if (hasUDA!(member, JsonRawValue)) {
+                                        static assert(
+                                            is(ParameterTypeTuple!member == AliasSeq!( string )),
+                                            "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need parameter of type string if annotated with @JsonRawValue"
+                                        );
+
+                                        enum Val = "parse.consumeRawJson()";
+                                    }
+                                    else {
+                                        enum Val = "this.deserialize!(ParameterTypeTuple!member)(parse)";
+                                    }
+
+                                    enum Aliases = GenAliasCases!(member);
+
+                                    enum GenCasesStructMethods =
+                                        "case \"" ~ uda.name ~ "\": " ~ Aliases ~ " {"
+                                            ~ "alias member = T." ~ name ~ ";"
+                                            ~ "value." ~ name ~ "(" ~ Val ~ ");"
+                                            ~ "break;"
+                                        ~ "}"
+                                        ~ GenCasesStructMethods!(i+1);
+                                }
+                            } else {
+                                enum GenCasesStructMethods = GenCasesStructMethods!(i+1);
+                            }
+                        }
+                        else {
+                            enum GenCasesStructMethods = GenCasesStructMethods!(i+1);
+                        }
+                    }
+                }
+
+                template GenCaseDefaultStruct(size_t i = 0) {
+                    static if (i >= allMembers.length) {
+                        enum GenCaseDefaultStruct = "";
+                    }
+                    else {
+                        enum name = allMembers[i];
+                        mixin ("alias member = T." ~ name ~ ";");
+                        static if (is(typeof(member) == function)) {
+                            enum isAnySetter = hasUDA!(member, JsonAnySetter);
+                            static if (isAnySetter) {
+                                enum Rest = GenCaseDefaultStruct!(i+1);
+                                static if (Rest != "") {
+                                    static assert(0, "Cannot have multiple @JsonAnySetter in one class/struct");
+                                }
+
+                                alias ParamT = ParameterTypeTuple!member;
+                                static if (ParamT.length == 1 && isAssociativeArray!(ParamT) && isSomeString!(KeyType!ParamT)) {
+                                    static assert(
+                                        0,
+                                        "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Associative array as param is NIY"
+                                    );
+                                } else static if (ParamT.length == 2 && is(ParamT == AliasSeq!( string, JsonParser ))) {
+                                    enum GenCaseDefaultStruct =
+                                        "default: {" ~
+                                            "value." ~ name ~ "(key, parse);" ~
+                                            "break;" ~
+                                        "}";
+                                } else {
+                                    static assert(
+                                        0,
+                                        "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Wrong parameter type"
+                                    );
+                                }
+                            } else {
+                                enum GenCaseDefaultStruct = GenCaseDefaultStruct!(i+1);
+                            }
+                        }
+                        else {
+                            enum GenCaseDefaultStruct = GenCaseDefaultStruct!(i+1);
+                        }
+                    }
+                }
+                enum __code = GenCaseDefaultStruct!();
+                switch (key) {
+                    mixin(GenCasesStructFields!());
+                    mixin(GenCasesStructMethods!());
+                    static if (__code == "") {
+                        default: {
+                            auto rawVal = parse.consumeRawJson();
+                            debug (serialize_d) {
+                                import std.stdio;
+                                writeln("[JsonMapper.deserialize!" ~ fullyQualifiedName!T ~ "] found unknown key '" ~ key ~ "' with value " ~ rawVal);
+                            }
+                            break;
+                        }
+                    } else {
+                        mixin(__code);
+                    }
+                }
+            }
+        }
+    }
+
     /// Deserializes from a JsonParser into the requested type
     /// 
     /// Params:
@@ -1110,246 +1350,12 @@ public:
             }
 
             parse.consumeChar('{');
-            char c;
             static if (is(T == class)) {
                 T value = new T();
             } else {
                 T value;
             }
-
-            while (true) {
-                c = parse.currentChar();
-                if (c == '}') { parse.nextChar(); break; }
-                else if (c == ',') { parse.nextChar(); continue; }
-                else if (c.isWhitespace) { parse.nextChar(); continue; }
-                else {
-                    string key = parse.consumeString();
-                    parse.skipWhitespace();
-                    parse.consumeChar(':');
-                    parse.skipWhitespace();
-
-                    template GenAliasCases(alias sym) {
-                        static if (hasUDA!(sym, JsonAlias)) {
-                            alias alias_udas = getUDAs!(sym, JsonAlias);
-                            template CollectAliasCases(size_t i = 0) {
-                                static if (i >= alias_udas.length) {
-                                    enum CollectAliasCases = "";
-                                } else {
-                                    alias alias_uda = alias_udas[i];
-                                    template CollectAliasCasesInner(size_t i = 0) {
-                                        static if (i >= alias_uda.names.length) {
-                                            enum CollectAliasCasesInner = "";
-                                        } else {
-                                            enum CollectAliasCasesInner =
-                                                "case \"" ~ alias_uda.names[i] ~ "\": "
-                                                ~ CollectAliasCasesInner!(i+1);
-                                        }
-                                    }
-                                    enum CollectAliasCases = CollectAliasCasesInner!() ~ CollectAliasCases!(i + 1);
-                                }
-                            }
-                            enum GenAliasCases = CollectAliasCases!();
-                        } else {
-                            enum GenAliasCases = "";
-                        }
-                    }
-
-                    alias field_names = FieldNameTuple!T;
-                    alias field_types = FieldTypeTuple!T;
-                    template GenCasesStructFields(size_t i = 0) {
-                        static if (i >= field_names.length) {
-                            enum GenCasesStructFields = "";
-                        } else static if (hasUDA!(T.tupleof[i], JsonIgnore)) {
-                            enum GenCasesStructFields = GenCasesStructFields!(i+1);
-                        } else static if (hasUDA!(field_types[i], JsonIgnoreType)) {
-                            enum GenCasesStructFields = GenCasesStructFields!(i+1);
-                        } else {
-
-                            alias name = field_names[i];
-                            static if (hasUDA!(T.tupleof[i], JsonProperty)) {
-                                alias udas = getUDAs!(T.tupleof[i], JsonProperty);
-                                static assert(udas.length == 1, "Field `" ~ fullyQualifiedName!T ~ "." ~ name ~ "` can only have one @JsonProperty");
-
-                                alias uda = udas[0];
-                                static if (is(uda == JsonProperty)) {
-                                    enum Key = name;
-                                } else {
-                                    static if (uda.name == "") {
-                                        enum Key = name;
-                                    } else {
-                                        enum Key = uda.name;
-                                    }
-                                }
-                            } else {
-                                enum Key = name;
-                            }
-
-                            alias ty = field_types[i];
-                            static if (hasUDA!(T.tupleof[i], JsonDeserialize)) {
-                                import std.conv : to;
-                                enum Val =
-                                    "{ " ~
-                                        "alias T = imported!\"" ~ moduleName!T ~ "\"." ~ T.stringof ~ ";" ~
-                                        "alias udas = getUDAs!(T.tupleof[" ~ to!string(i) ~ "], JsonDeserialize);" ~
-                                        "static assert (udas.length == 1, \"Cannot deserialize member `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: got more than one @JsonDeserialize attributes\");" ~
-                                        "value." ~ name ~ " = callCustomDeserializer!(udas, typeof(T.tupleof[" ~ to!string(i) ~ "]))(parse);" ~
-                                    " }";
-                            } else static if (isSomeString!(ty) && hasUDA!(T.tupleof[i], JsonRawValue)) {
-                                enum Val = "value." ~ name ~ " = parse.consumeRawJson();";
-                            } else {
-                                mixin("alias member = T." ~ name ~ ";");
-                                alias memberTy = typeof(member);
-                                static if (isBuiltinType!memberTy && !is(memberTy == enum)) {
-                                    enum Val =
-                                        "value." ~ name ~ " = this.deserialize!(" ~ fullyQualifiedName!memberTy ~ ")(parse);";
-                                } else {
-                                    enum Val =
-                                        "import " ~ moduleName!memberTy ~ "; " ~
-                                        "value." ~ name ~ " = this.deserialize!(" ~ fullyQualifiedName!memberTy ~ ")(parse);";
-                                }
-                            }
-
-                            enum Aliases = GenAliasCases!(T.tupleof[i]);
-
-                            enum GenCasesStructFields =
-                                "case \"" ~ Key ~ "\": " ~ Aliases ~ " { " ~ Val ~ " break; }\n"
-                                ~ GenCasesStructFields!(i+1);
-                        }
-                    }
-
-                    alias allMembers = __traits(allMembers, T);
-                    template GenCasesStructMethods(size_t i = 0) {
-                        static if (i >= allMembers.length) {
-                            enum GenCasesStructMethods = "";
-                        }
-                        else {
-                            enum name = allMembers[i];
-                            mixin ("alias member = T." ~ name ~ ";");
-                            static if (is(typeof(member) == function)) {
-                                enum isSetter = hasUDA!(member, JsonSetter);
-                                enum isAnySetter = hasUDA!(member, JsonAnySetter);
-                                static assert (
-                                    !(isSetter && isAnySetter),
-                                    "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have both @JsonSetter and @JsonAnySetter"
-                                );
-
-                                static if (isSetter) {
-                                    static assert(
-                                        !is(ParameterTypeTuple!member == AliasSeq!()),
-                                        "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Setter must have atleast one parameter"
-                                    );
-                                    // TODO: check if has only one param...
-
-                                    alias udas = getUDAs!(member, JsonSetter);
-                                    static assert(
-                                        udas.length == 1,
-                                        "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have multiple @JsonSetter"
-                                    );
-
-                                    alias uda = udas[0];
-                                    static if (is(uda == JsonSetter)) {
-                                        static assert(
-                                            0, "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need instance of @JsonSetter"
-                                        );
-                                    } else {
-                                        static assert(
-                                            uda.name != "",
-                                            "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need name for @JsonSetter"
-                                        );
-
-                                        static if (hasUDA!(member, JsonRawValue)) {
-                                            static assert(
-                                                is(ParameterTypeTuple!member == AliasSeq!( string )),
-                                                "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need parameter of type string if annotated with @JsonRawValue"
-                                            );
-
-                                            enum Val = "parse.consumeRawJson()";
-                                        }
-                                        else {
-                                            enum Val = "this.deserialize!(ParameterTypeTuple!member)(parse)";
-                                        }
-
-                                        enum Aliases = GenAliasCases!(member);
-
-                                        enum GenCasesStructMethods =
-                                            "case \"" ~ uda.name ~ "\": " ~ Aliases ~ " {"
-                                                ~ "alias member = T." ~ name ~ ";"
-                                                ~ "value." ~ name ~ "(" ~ Val ~ ");"
-                                                ~ "break;"
-                                            ~ "}"
-                                            ~ GenCasesStructMethods!(i+1);
-                                    }
-                                } else {
-                                    enum GenCasesStructMethods = GenCasesStructMethods!(i+1);
-                                }
-                            }
-                            else {
-                                enum GenCasesStructMethods = GenCasesStructMethods!(i+1);
-                            }
-                        }
-                    }
-
-                    template GenCaseDefaultStruct(size_t i = 0) {
-                        static if (i >= allMembers.length) {
-                            enum GenCaseDefaultStruct = "";
-                        }
-                        else {
-                            enum name = allMembers[i];
-                            mixin ("alias member = T." ~ name ~ ";");
-                            static if (is(typeof(member) == function)) {
-                                enum isAnySetter = hasUDA!(member, JsonAnySetter);
-                                static if (isAnySetter) {
-                                    enum Rest = GenCaseDefaultStruct!(i+1);
-                                    static if (Rest != "") {
-                                        static assert(0, "Cannot have multiple @JsonAnySetter in one class/struct");
-                                    }
-
-                                    alias ParamT = ParameterTypeTuple!member;
-                                    static if (ParamT.length == 1 && isAssociativeArray!(ParamT) && isSomeString!(KeyType!ParamT)) {
-                                        static assert(
-                                            0,
-                                            "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Associative array as param is NIY"
-                                        );
-                                    } else static if (ParamT.length == 2 && is(ParamT == AliasSeq!( string, JsonParser ))) {
-                                        enum GenCaseDefaultStruct =
-                                            "default: {" ~
-                                                "value." ~ name ~ "(key, parse);" ~
-                                                "break;" ~
-                                            "}";
-                                    } else {
-                                        static assert(
-                                            0,
-                                            "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Wrong parameter type"
-                                        );
-                                    }
-                                } else {
-                                    enum GenCaseDefaultStruct = GenCaseDefaultStruct!(i+1);
-                                }
-                            }
-                            else {
-                                enum GenCaseDefaultStruct = GenCaseDefaultStruct!(i+1);
-                            }
-                        }
-                    }
-                    enum __code = GenCaseDefaultStruct!();
-                    switch (key) {
-                        mixin(GenCasesStructFields!());
-                        mixin(GenCasesStructMethods!());
-                        static if (__code == "") {
-                            default: {
-                                auto rawVal = parse.consumeRawJson();
-                                debug (serialize_d) {
-                                    import std.stdio;
-                                    writeln("[JsonMapper.deserialize!" ~ fullyQualifiedName!T ~ "] found unknown key '" ~ key ~ "' with value " ~ rawVal);
-                                }
-                                break;
-                            }
-                        } else {
-                            mixin(__code);
-                        }
-                    }
-                }
-            }
+            this.deserializeObjectInner(value, parse);
             return value;
         }
         else static if (isSomeString!T) {
