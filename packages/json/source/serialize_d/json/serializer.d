@@ -1122,66 +1122,70 @@ public:
                     }
                     else {
                         enum name = allMembers[i];
-                        mixin ("alias member = T." ~ name ~ ";");
-                        static if (is(typeof(member) == function)) {
-                            enum isSetter = hasUDA!(member, JsonSetter);
-                            enum isAnySetter = hasUDA!(member, JsonAnySetter);
-                            static assert (
-                                !(isSetter && isAnySetter),
-                                "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have both @JsonSetter and @JsonAnySetter"
-                            );
-
-                            static if (isSetter) {
-                                static assert(
-                                    !is(ParameterTypeTuple!member == AliasSeq!()),
-                                    "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Setter must have atleast one parameter"
-                                );
-                                // TODO: check if has only one param...
-
-                                alias udas = getUDAs!(member, JsonSetter);
-                                static assert(
-                                    udas.length == 1,
-                                    "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have multiple @JsonSetter"
+                        static if (__traits(compiles, mixin("T." ~ name))) {
+                            mixin ("alias member = T." ~ name ~ ";");
+                            static if (is(typeof(member) == function)) {
+                                enum isSetter = hasUDA!(member, JsonSetter);
+                                enum isAnySetter = hasUDA!(member, JsonAnySetter);
+                                static assert (
+                                    !(isSetter && isAnySetter),
+                                    "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have both @JsonSetter and @JsonAnySetter"
                                 );
 
-                                alias uda = udas[0];
-                                static if (is(uda == JsonSetter)) {
+                                static if (isSetter) {
                                     static assert(
-                                        0, "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need instance of @JsonSetter"
+                                        !is(ParameterTypeTuple!member == AliasSeq!()),
+                                        "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Setter must have atleast one parameter"
                                     );
-                                } else {
+                                    // TODO: check if has only one param...
+
+                                    alias udas = getUDAs!(member, JsonSetter);
                                     static assert(
-                                        uda.name != "",
-                                        "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need name for @JsonSetter"
+                                        udas.length == 1,
+                                        "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Cannot have multiple @JsonSetter"
                                     );
 
-                                    static if (hasUDA!(member, JsonRawValue)) {
+                                    alias uda = udas[0];
+                                    static if (is(uda == JsonSetter)) {
                                         static assert(
-                                            is(ParameterTypeTuple!member == AliasSeq!( string )),
-                                            "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need parameter of type string if annotated with @JsonRawValue"
+                                            0, "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need instance of @JsonSetter"
+                                        );
+                                    } else {
+                                        static assert(
+                                            uda.name != "",
+                                            "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need name for @JsonSetter"
                                         );
 
-                                        enum Val = "parse.consumeRawJson()";
-                                    }
-                                    else {
-                                        enum Val = "this.deserialize!(ParameterTypeTuple!member)(parse)";
-                                    }
+                                        static if (hasUDA!(member, JsonRawValue)) {
+                                            static assert(
+                                                is(ParameterTypeTuple!member == AliasSeq!( string )),
+                                                "Error in setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Need parameter of type string if annotated with @JsonRawValue"
+                                            );
 
-                                    enum Aliases = GenAliasCases!(member);
+                                            enum Val = "parse.consumeRawJson()";
+                                        }
+                                        else {
+                                            enum Val = "this.deserialize!(ParameterTypeTuple!member)(parse)";
+                                        }
 
-                                    enum GenCasesStructMethods =
-                                        "case \"" ~ uda.name ~ "\": " ~ Aliases ~ " {"
-                                            ~ "alias member = T." ~ name ~ ";"
-                                            ~ "value." ~ name ~ "(" ~ Val ~ ");"
-                                            ~ "break;"
-                                        ~ "}"
-                                        ~ GenCasesStructMethods!(i+1);
+                                        enum Aliases = GenAliasCases!(member);
+
+                                        enum GenCasesStructMethods =
+                                            "case \"" ~ uda.name ~ "\": " ~ Aliases ~ " {"
+                                                ~ "alias member = T." ~ name ~ ";"
+                                                ~ "value." ~ name ~ "(" ~ Val ~ ");"
+                                                ~ "break;"
+                                            ~ "}"
+                                            ~ GenCasesStructMethods!(i+1);
+                                    }
+                                } else {
+                                    enum GenCasesStructMethods = GenCasesStructMethods!(i+1);
                                 }
-                            } else {
+                            }
+                            else {
                                 enum GenCasesStructMethods = GenCasesStructMethods!(i+1);
                             }
-                        }
-                        else {
+                        } else {
                             enum GenCasesStructMethods = GenCasesStructMethods!(i+1);
                         }
                     }
@@ -1193,34 +1197,39 @@ public:
                     }
                     else {
                         enum name = allMembers[i];
-                        mixin ("alias member = T." ~ name ~ ";");
-                        static if (is(typeof(member) == function)) {
-                            enum isAnySetter = hasUDA!(member, JsonAnySetter);
-                            static if (isAnySetter) {
-                                enum Rest = GenCaseDefaultStruct!(i+1);
-                                static if (Rest != "") {
-                                    static assert(0, "Cannot have multiple @JsonAnySetter in one class/struct");
-                                }
+                        static if (__traits(compiles, mixin("T." ~ name))) {
+                            mixin ("alias member = T." ~ name ~ ";");
+                            static if (is(typeof(member) == function)) {
+                                enum isAnySetter = hasUDA!(member, JsonAnySetter);
+                                static if (isAnySetter) {
+                                    enum Rest = GenCaseDefaultStruct!(i+1);
+                                    static if (Rest != "") {
+                                        static assert(0, "Cannot have multiple @JsonAnySetter in one class/struct");
+                                    }
 
-                                alias ParamT = ParameterTypeTuple!member;
-                                static if (ParamT.length == 1 && isAssociativeArray!(ParamT) && isSomeString!(KeyType!ParamT)) {
-                                    static assert(
-                                        0,
-                                        "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Associative array as param is NIY"
-                                    );
-                                } else static if (ParamT.length == 2 && is(ParamT == AliasSeq!( string, JsonParser ))) {
-                                    enum GenCaseDefaultStruct =
-                                        "default: {" ~
-                                            "value." ~ name ~ "(key, parse);" ~
-                                            "break;" ~
-                                        "}";
+                                    alias ParamT = ParameterTypeTuple!member;
+                                    static if (ParamT.length == 1 && isAssociativeArray!(ParamT) && isSomeString!(KeyType!ParamT)) {
+                                        static assert(
+                                            0,
+                                            "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Associative array as param is NIY"
+                                        );
+                                    } else static if (ParamT.length == 2 && is(ParamT == AliasSeq!( string, JsonParser ))) {
+                                        enum GenCaseDefaultStruct =
+                                            "default: {" ~
+                                                "value." ~ name ~ "(key, parse);" ~
+                                                "break;" ~
+                                            "}";
+                                    } else {
+                                        static assert(
+                                            0,
+                                            "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Wrong parameter type"
+                                        );
+                                    }
                                 } else {
-                                    static assert(
-                                        0,
-                                        "Error in any-setter `" ~ fullyQualifiedName!T ~ "." ~ name ~ "`: Wrong parameter type"
-                                    );
+                                    enum GenCaseDefaultStruct = GenCaseDefaultStruct!(i+1);
                                 }
-                            } else {
+                            }
+                            else {
                                 enum GenCaseDefaultStruct = GenCaseDefaultStruct!(i+1);
                             }
                         }
@@ -1349,14 +1358,97 @@ public:
                 }
             }
 
-            parse.consumeChar('{');
-            static if (is(T == class)) {
-                T value = new T();
-            } else {
-                T value;
+            alias type_info_uda = getUDAs!(T, JsonTypeInfo);
+            static if (type_info_uda.length == 1) {
+                static if (!is(T == class)) {
+                    static assert (0, "Can only deserialize a class annotated with @JsonTypeInfo");
+                }
+
+                alias subtypes_udas = getUDAs!(T, JsonSubTypes);
+                template CreateInstance(size_t i = 0) {
+                    static if (i >= subtypes_udas[0].subtypes.length) {
+                        enum CreateInstance = "";
+                    }
+                    else {
+                        enum Type = "imported!\"" ~ subtypes_udas[0].subtypes[i].mod ~ "\"." ~ subtypes_udas[0].subtypes[i].type;
+                        enum Name = subtypes_udas[0].subtypes[i].name;
+                        pragma(msg, "Gen case for '" ~ Name ~ "' with type " ~ Type);
+                        enum CreateInstance =
+                            "case \"" ~ Name ~ "\": {"
+                                ~ "auto value = new " ~ Type ~ "();"
+                                ~ "this.deserializeObjectInner(value, parse);"
+                                ~ "result = value;"
+                                ~ "break;"
+                            ~ "}" ~ CreateInstance!(i+1);
+                    }
+                }
+
+                static if (type_info_uda[0].include == JsonTypeInfo.As.WRAPPER_OBJECT) {
+                    parse.consumeChar('{');
+                    parse.consumeString(); // should be "type"...
+                    parse.consumeChar(':');
+                    string decodedType = parse.consumeString();
+                    parse.consumeChar(',');
+                    parse.consumeString(); // should be "value"...
+                    parse.consumeChar(':');
+                    parse.consumeChar('{');
+
+                    T result;
+                    switch (decodedType) {
+                        mixin(CreateInstance!());
+                        default: {
+                            throw new JsonParseException("Cannot deserialize: type '" ~ decodedType ~ "' not present in @JsonSubTypes!");
+                        }
+                    }
+                    parse.consumeChar('}');
+                    return result;
+                }
+                else static if (type_info_uda[0].include == JsonTypeInfo.As.WRAPPER_ARRAY) {
+                    parse.consumeChar('[');
+                    string decodedType = parse.consumeString();
+                    parse.consumeChar(',');
+                    parse.consumeChar('{');
+
+                    T result;
+                    switch (decodedType) {
+                        mixin(CreateInstance!());
+                        default: {
+                            throw new JsonParseException("Cannot deserialize: type '" ~ decodedType ~ "' not present in @JsonSubTypes!");
+                        }
+                    }
+                    parse.consumeChar(']');
+                    return result;
+                }
+                else static if (type_info_uda[0].include == JsonTypeInfo.As.PROPERTY) {
+                    parse.consumeChar('{');
+                    parse.consumeString(); // should be type_info_uda[0].property ...
+                    parse.consumeChar(':');
+                    string decodedType = parse.consumeString();
+                    parse.consumeChar(',');
+
+                    T result;
+                    switch (decodedType) {
+                        mixin(CreateInstance!());
+                        default: {
+                            throw new JsonParseException("Cannot deserialize: type '" ~ decodedType ~ "' not present in @JsonSubTypes!");
+                        }
+                    }
+                    return result;
+                }
             }
-            this.deserializeObjectInner(value, parse);
-            return value;
+            else static if (type_info_uda.length > 1) {
+                static assert(0, "Cannot have more than one @JsonTypeInfo attribute on `" ~ fullyQualifiedName!T ~ "`");
+            }
+            else {
+                parse.consumeChar('{');
+                static if (is(T == class)) {
+                    T value = new T();
+                } else {
+                    T value;
+                }
+                this.deserializeObjectInner(value, parse);
+                return value;
+            }
         }
         else static if (isSomeString!T) {
             return parse.consumeString();
