@@ -92,8 +92,35 @@ struct JsonIgnoreType {}
 
 // --------------------------------------------------------------------------------
 
-// struct JsonTypeInfo {}
-// struct JsonTypeName {}
+struct JsonTypeInfo {
+    enum Id { CLASS, NAME }
+    Id use;
+
+    enum As { PROPERTY, WRAPPER_OBJECT, WRAPPER_ARRAY }
+    As include;
+
+    string property;
+}
+
+template mkJsonSubType(alias T, string name) {
+    import std.traits : moduleName, fullyQualifiedName;
+    import serialize_d.json : JsonSubTypes;
+    import std.string : replace;
+    enum JsonSubTypes.Type mkJsonSubType = {
+        mod: moduleName!T,
+        type: replace( fullyQualifiedName!T, moduleName!T ~ ".", "" ),
+        name: name
+    };
+}
+
+struct JsonSubTypes {
+    struct Type {
+        string mod;
+        string type;
+        string name;
+    }
+    Type[] subtypes;
+}
 
 // --------------------------------------------------------------------------------
 
