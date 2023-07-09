@@ -2,6 +2,8 @@
 
 serialize-d is a data serialization provider.
 
+Notice: serialize-d is deprecated and will NOT recieve further updates; please switch to [ninox-d_data](https://github.com/Bithero-Agency/ninox.d-data)
+
 ## License
 
 The code in this repository is licensed under AGPL-3.0-or-later; for more details see the `LICENSE` file in the repository.
